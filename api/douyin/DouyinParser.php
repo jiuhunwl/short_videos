@@ -14,6 +14,16 @@ class DouyinParser
     private $cookie;
     private $userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
+    /**
+     * 原画播放接口（与 cloudflare workers 版保持一致，唯一原画接口）【其实原画接口100个以上】
+     */
+    private $originalPlayEndpoint = 'https://aweme.snssdk.com/aweme/v1/play/';
+
+    /**
+     * 批量转换 vid 的单次上限（与 workers 版一致，超出的回退拼接地址）
+     */
+    private $vidResolveMaxCount = 30;
+
     public function __construct()
     {
         $this->headers = [
@@ -126,6 +136,217 @@ class DouyinParser
         curl_close($ch);
 
         return $realUrl ?: $url;
+    }
+
+    /**
+     * 拼接原画播放地址（唯一原画接口）【其实原画接口100个以上】
+     */
+    private function buildOriginalPlayUrl($vid, $ratio = 'default')
+    {
+        if (empty($vid)) {
+            return null;
+        }
+        return $this->originalPlayEndpoint . '?video_id=' . rawurlencode((string)$vid) . '&ratio=' . $ratio . '&line=0';
+    }
+
+    /**
+     * 单次请求，仅跟踪 302 Location（最多 $max 跳），无重定向返回 null
+     */
+    private function followLocation($url, $max = 3)
+    {
+        $current = $url;
+        $redirected = false;
+
+        for ($i = 0; $i < $max; $i++) {
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $current,
+                CURLOPT_USERAGENT => $this->userAgent,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_FOLLOWLOCATION => false,
+                CURLOPT_HEADER => true,
+                CURLOPT_TIMEOUT => 10,
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_SSL_VERIFYHOST => false,
+            ]);
+            $response = curl_exec($ch);
+            $error = curl_error($ch);
+            $headerSize = (int)curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+            $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            if ($error || $response === false || $httpCode < 300 || $httpCode >= 400) {
+                break;
+            }
+
+            $headerText = substr($response, 0, $headerSize);
+            if (!preg_match('/^location:\s*(\S+)/mi', $headerText, $matches)) {
+                break;
+            }
+
+            $location = trim($matches[1]);
+            // 相对地址转绝对
+            if (strpos($location, 'http') !== 0) {
+                $parsed = parse_url($current);
+                if (!empty($parsed['scheme']) && !empty($parsed['host'])) {
+                    $location = $parsed['scheme'] . '://' . $parsed['host']
+                        . ($location[0] === '/' ? '' : '/') . $location;
+                }
+            }
+
+            $current = $location;
+            $redirected = true;
+        }
+
+        return $redirected ? $current : null;
+    }
+
+    /**
+     * 传入视频 vid，拿 302 后的原画直链；任一环节失败则回退拼接的原画地址
+     * 这个破原画接口竟然还有人卖四位数，真是穷疯了
+     * （与 cloudflare workers 版 resolveOriginalVideoUrl 逻辑一致）
+     */
+    private function resolveOriginalVideoUrl($vid, $ratio = 'default')
+    {
+        $fallbackUrl = $this->buildOriginalPlayUrl($vid, $ratio);
+        if (!$fallbackUrl) {
+            return null;
+        }
+
+        $resolved = $this->followLocation($fallbackUrl, 3);
+        return $resolved ?: $fallbackUrl;
+    }
+
+    /**
+     * 从 video 信息中提取 vid（优先 play_addr.uri，兼容 playAddr[0].uri 与 video.uri）
+     */
+    private function extractVidFromVideoInfo($videoInfo)
+    {
+        if (!is_array($videoInfo)) {
+            return null;
+        }
+        if (!empty($videoInfo['play_addr']['uri'])) {
+            return (string)$videoInfo['play_addr']['uri'];
+        }
+        if (!empty($videoInfo['playAddr'][0]['uri'])) {
+            return (string)$videoInfo['playAddr'][0]['uri'];
+        }
+        if (!empty($videoInfo['uri']) && is_string($videoInfo['uri'])) {
+            return $videoInfo['uri'];
+        }
+        return null;
+    }
+
+    /**
+     * 批量转换 vid：去重 + 缓存 + 数量上限（超出的 vid 不在结果中，由调用方回退拼接地址）
+     */
+    private function resolveVidBatch($vidList)
+    {
+        $cache = [];
+        $unique = array_values(array_unique(array_filter($vidList)));
+        $limited = array_slice($unique, 0, $this->vidResolveMaxCount);
+
+        foreach ($limited as $vid) {
+            $cache[$vid] = $this->resolveOriginalVideoUrl($vid);
+        }
+
+        return $cache;
+    }
+
+    /**
+     * 有界探测主视频真实字节大小：单次 HEAD、不下载正文，拿不到一律 0（契约允许未知）
+     */
+    private function probeVideoSize($url)
+    {
+        if (empty($url)) {
+            return 0;
+        }
+
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $url,
+            CURLOPT_USERAGENT => $this->userAgent,
+            CURLOPT_NOBODY => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 5,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => false,
+        ]);
+        curl_exec($ch);
+        $error = curl_error($ch);
+        $contentType = strtolower((string)curl_getinfo($ch, CURLINFO_CONTENT_TYPE));
+        $length = (int)curl_getinfo($ch, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($error || $httpCode < 200 || $httpCode >= 300) {
+            return 0;
+        }
+        if (strpos($contentType, 'video') === false && strpos($contentType, 'octet-stream') === false) {
+            return 0;
+        }
+        return $length > 0 ? $length : 0;
+    }
+
+    /**
+     * 统一响应契约辅助：1024 进制 B/KB/MB/GB/TB，最多两位小数且不保留尾部 0
+     */
+    private function formatSizeLabel($bytes)
+    {
+        if (!is_numeric($bytes) || $bytes <= 0) {
+            return '';
+        }
+        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        $value = (float)$bytes;
+        $unit = 0;
+        while ($value >= 1024 && $unit < count($units) - 1) {
+            $value /= 1024;
+            $unit++;
+        }
+        if ($unit === 0) {
+            return round($value) . 'B';
+        }
+        $label = rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.');
+        return $label . $units[$unit];
+    }
+
+    /**
+     * 发布时间归一化：秒级直用，毫秒级（>=1e12）除一次 1000，非法/超范围归 0
+     */
+    private function normalizeCreateTime($value)
+    {
+        if (!is_numeric($value) || $value <= 0) {
+            return 0;
+        }
+        $ts = (float)$value;
+        if ($ts >= 1000000000000) {
+            $ts = floor($ts / 1000);
+        } else {
+            $ts = floor($ts);
+        }
+        $ts = (int)$ts;
+        if ($ts < 1000000000 || $ts > 4102444800) {
+            return 0;
+        }
+        return $ts;
+    }
+
+    /**
+     * 固定东八区格式化为 YYYY-MM-DD HH:mm:ss，未知返回空串
+     */
+    private function formatPublishTime($createTime)
+    {
+        if (empty($createTime)) {
+            return '';
+        }
+        try {
+            $dt = new DateTime('@' . $createTime);
+            $dt->setTimezone(new DateTimeZone('Asia/Shanghai'));
+            return $dt->format('Y-m-d H:i:s');
+        } catch (Exception $e) {
+            return '';
+        }
     }
 
     /**
@@ -248,6 +469,13 @@ class DouyinParser
      */
     private function formatData($detail)
     {
+        // 契约要求秒：抖音原始 duration 为毫秒，>=1000 视为毫秒归一为秒
+        $duration = $detail['video']['duration'] ?? null;
+        if (is_numeric($duration) && $duration >= 1000) {
+            $duration = round($duration / 1000, 2);
+        }
+        $createTime = $this->normalizeCreateTime($detail['create_time'] ?? ($detail['createTime'] ?? 0));
+
         $result = [
             'type' => 'unknown',
             'title' => $detail['desc'] ?? '',
@@ -259,7 +487,12 @@ class DouyinParser
             ],
             'cover' => '',
             'url' => null, // 视频链接
-            'duration' => $detail['video']['duration'] ?? null,
+            'quality' => '',
+            'duration' => $duration,
+            'size' => 0,
+            'size_label' => '',
+            'create_time' => $createTime,
+            'publish_time' => $this->formatPublishTime($createTime),
             'video_backup' => null,
             'images' => [],
             'live_photo' => [],
@@ -268,7 +501,8 @@ class DouyinParser
                 'author' => $detail['music']['ownerNickname'] ?? ($detail['music']['author'] ?? ''),
                 'url' => $detail['music']['playUrl']['uri'] ?? ($detail['music']['play_url']['uri'] ?? ''),
                 'cover' => $detail['music']['coverThumb']['urlList'][0] ?? ($detail['music']['cover_thumb']['url_list'][0] ?? '')
-            ]
+            ],
+            'extra' => (object)[]
         ];
 
         // 提取封面 (尝试多种字段)
@@ -317,6 +551,7 @@ class DouyinParser
         if (!empty($images)) {
             // 图文/图集/实况
             $result['type'] = 'image';
+            $liveCandidates = [];
 
             foreach ($images as $img) {
                 // 提取图片 URL
@@ -389,11 +624,24 @@ class DouyinParser
 
                 if ($liveVideoUrl) {
                     $liveVideoUrl = str_replace('playwm', 'play', $liveVideoUrl);
-                    $result['live_photo'][] = [
-                        'image' => $imgUrl,
-                        'video' => $liveVideoUrl
-                    ];
+                    if ($imgUrl) {
+                        $liveCandidates[] = [
+                            'image' => $imgUrl,
+                            'fallbackUrl' => $liveVideoUrl,
+                            'vid' => $this->extractVidFromVideoInfo($videoInfo),
+                        ];
+                    }
                 }
+            }
+
+            // 多视频 vid 全部转 302 后的原画直链，拿不到的回退原地址
+            $vidMap = $this->resolveVidBatch(array_column($liveCandidates, 'vid'));
+            foreach ($liveCandidates as $item) {
+                $resolved = ($item['vid'] && isset($vidMap[$item['vid']])) ? $vidMap[$item['vid']] : null;
+                $result['live_photo'][] = [
+                    'image' => $item['image'],
+                    'video' => $resolved ?: $item['fallbackUrl'],
+                ];
             }
 
             // 如果提取到了实况视频，修正类型为实况
@@ -404,13 +652,45 @@ class DouyinParser
             // 视频
             $result['type'] = 'video';
 
-            // 使用新逻辑提取最高画质视频（默认）
+            // 使用新逻辑提取最高画质视频
             $videoInfo = $this->extractHighestQualityVideo($detail);
-            $result['url'] = $videoInfo['url'];
-            $result['video_backup'] = $videoInfo['backup'];
-            $result['video_id'] = $detail['video']['uri'] ?? '';
 
-            // 【新增】多档清晰度选项（原画/高清/标清等）
+            $playUri = $this->extractVidFromVideoInfo($detail['video'] ?? null);
+            $main = $videoInfo['url'];
+            if ($main) {
+                $main = str_replace('playwm', 'play', $main);
+            }
+
+            // 原画优先：拿 vid 302 后的原画直链作为主地址；失败则回退原来的 main
+            $resolvedOriginal = $this->resolveOriginalVideoUrl($playUri);
+            if ($resolvedOriginal) {
+                if ($main && $main !== $resolvedOriginal) {
+                    array_unshift($videoInfo['backup'], $main);
+                }
+                $main = $resolvedOriginal;
+                // 只要主链接是原画 302 出来的，画质统一标 original
+                $result['quality'] = 'original';
+            } elseif (!empty($videoInfo['gearName'])) {
+                $result['quality'] = $videoInfo['gearName'];
+            }
+
+            $backups = [];
+            foreach ($videoInfo['backup'] as $candidate) {
+                $converted = str_replace('playwm', 'play', $candidate);
+                if ($converted && $converted !== $main && !in_array($converted, $backups)) {
+                    $backups[] = $converted;
+                }
+            }
+
+            $result['url'] = $main;
+            if ($main) {
+                $result['size'] = $this->probeVideoSize($main);
+                $result['size_label'] = $this->formatSizeLabel($result['size']);
+            }
+            $result['video_backup'] = $backups;
+            $result['video_id'] = $playUri ?: ($detail['video']['uri'] ?? '');
+
+            // 【合并】多档清晰度选项（原画/高清/标清等）
             $result['video_options'] = $this->extractVideoOptions($detail);
         }
 
@@ -423,6 +703,7 @@ class DouyinParser
     private function extractHighestQualityVideo($detail)
     {
         $url = null;
+        $gearName = '';
         $backup = [];
 
         // 尝试从 bitRateList 中提取
@@ -477,6 +758,7 @@ class DouyinParser
                     // 2. 如果全局 URL 尚未设置，使用当前最佳
                     if (!$url) {
                         $url = $currentBestUrl;
+                        $gearName = (string)($rateItem['gearName'] ?? ($rateItem['gear_name'] ?? ''));
                     }
 
                     // 3. 将所有非主 URL 的链接加入备用
@@ -505,7 +787,8 @@ class DouyinParser
             if ($playApi) {
                 $url = str_replace('playwm', 'play', $playApi);
             } elseif ($uri) {
-                $url = 'https://aweme.snssdk.com/aweme/v1/play/?video_id=' . $uri . '&ratio=720p&line=0';
+                // 原画兜底地址：formatData 会用 vid 走 resolveOriginalVideoUrl 做 302 解析，失败回退此地址
+                $url = $this->buildOriginalPlayUrl($uri);
             }
 
             // 备用
@@ -522,7 +805,7 @@ class DouyinParser
     }
 
     /**
-     * 【新增】提取多档清晰度视频选项（原画/高清/标清/流畅等）
+     * 【合并新增】提取多档清晰度视频选项（原画/高清/标清/流畅等）
      *
      * 说明：抖音 bitRateList 自带各档清晰度信息（qualityType/gearName/bitRate/size），
      * 这里把每一档都提取出来并带可读名称，供前端做"清晰度选择"。
@@ -543,7 +826,7 @@ class DouyinParser
             $bitRate  = $rateItem['bitRate'] ?? 0;           // 码率
             $size     = $rateItem['size'] ?? null;           // 文件大小（字节）
 
-            // 提取当前档位的可用播放地址（与 extractHighestQualityVideo 逻辑一致）
+            // 提取当前档位的可用播放地址
             $candidates = [];
             if (isset($rateItem['playAddr']) && is_array($rateItem['playAddr'])) {
                 foreach ($rateItem['playAddr'] as $pa) {
