@@ -63,8 +63,9 @@ function douyin($url)
     if (isset($uri) && preg_match('/^[a-zA-Z0-9]+$/', $uri)) {
         $url = $videoDetail['video']['playApi'];
         if (empty($url)) {
-            $url = 'https://aweme.snssdk.com/aweme/v1/play/?video_id=' . $data['app']['videoDetail']['video']['uri'] . '&ratio=720p&line=0';
-            $url = 'https://svproxy.168299.xyz/?proxyurl=' . base64_encode($url);
+            // 原画接口（与 cloudflare workers 版保持一致，唯一原画接口）【其实原画接口100个以上】
+            $url = 'https://aweme.snssdk.com/aweme/v1/play/?video_id=' . $data['app']['videoDetail']['video']['uri'] . '&ratio=default&line=0';
+//            $url = 'https://svproxy.168299.xyz/?proxyurl=' . base64_encode($url);
         }
     } else {
         $url = [];

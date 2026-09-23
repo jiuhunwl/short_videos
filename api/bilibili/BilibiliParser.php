@@ -66,12 +66,7 @@ class BilibiliParser
                 $videoUrl = '';
                 if (isset($playData['data']['durl'][0]['url'])) {
                     $rawUrl = $playData['data']['durl'][0]['url'];
-                    $parts = explode('.bilivideo.com/', $rawUrl);
-                    if (count($parts) > 1) {
-                        $videoUrl = 'https://upos-sz-mirrorhw.bilivideo.com/' . $parts[1];
-                    } else {
-                        $videoUrl = $rawUrl;
-                    }
+                    $videoUrl = preg_replace('/^https?:\/\/[^\/]+\//', 'https://upos-sz-mirrorhw.bilivideo.com/', $rawUrl);
                 }
 
                 $bilijson[] = [

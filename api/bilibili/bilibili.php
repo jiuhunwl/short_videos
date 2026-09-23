@@ -78,7 +78,7 @@ if ($array['code'] == '0') {
             $videoUrl = $videoInfo['data']['durl'][0]['url'];
 
             // 提取真实视频地址（去除镜像前缀）
-            $realVideoUrl = preg_replace('/.*\.bilivideo\.com\//', 'https://upos-sz-mirrorhw.bilivideo.com/', $videoUrl);
+            $realVideoUrl = preg_replace('/^https?:\/\/[^\/]+\//', 'https://upos-sz-mirrorhw.bilivideo.com/', $videoUrl);
 
             $videos[] = [
                 'title' => $page['part'],

@@ -136,12 +136,18 @@ curl -X POST "<WORKER_URL>" \
     - `id`: 作者 id（uid/unique_id/short_id）
     - `avatar`: 头像
 - **cover**: 封面 URL
+- **quality**: 画质标记（见下方「原画说明」）
 - **music**:
     - `title`
     - `author`
     - `url`
     - `cover`
-- **duration**: 时长（可能为 `null`）
+- **duration**: 时长（秒，毫秒已归一；可能为 `null`）
+- **size**: 主视频真实字节大小（HEAD 探测，拿不到为 `0`）
+- **size_label**: 由 `size` 派生的标签（如 `2.62MB`；`size=0` 时为空串）
+- **create_time**: 作品发布时间（Unix 秒；毫秒自动归一；未知为 `0`）
+- **publish_time**: 与 `create_time` 同一刻，固定东八区 `YYYY-MM-DD HH:mm:ss`；未知为空串
+- **extra**: 预留扩展对象（当前为 `{}`）
 
 当 `type=video`：
 
@@ -159,6 +165,46 @@ curl -X POST "<WORKER_URL>" \
 - **live_photo**: 实况数组，每项：
     - `image`
     - `video`
+
+---
+
+## 原画说明 / Original quality
+
+本项目使用**唯一原画接口**【其实原画接口100个以上】：
+
+```
+https://aweme.snssdk.com/aweme/v1/play/?video_id={vid}&ratio=default&line=0
+```
+
+This project uses **the single original-quality endpoint** (in fact there are 100+ original-quality endpoints out there):
+
+解析流程 / How it works:
+
+1. 从详情数据提取视频 `vid`（`play_addr.uri` 等）
+2. 请求上述原画端点，跟随 302 重定向，取得原画 CDN 直链（`douyinvod.com` 等）
+3. **任一环节失败（无重定向/网络异常）自动回退**拼接的原画地址或原主链接，不影响解析成功
+
+1. Extract the video `vid` from the detail data (e.g. `play_addr.uri`)
+2. Request the endpoint above and follow the 302 redirect to get the original-quality CDN URL
+3. **On any failure it automatically falls back** to the constructed URL or the previous main link, so parsing never breaks
+
+画质标记 / Quality label:
+
+- 只要主视频链接是原画 302 出来的，`data.quality` 统一标记为 **`"original"`**
+- 非 302 主链接（bit_rate 最高档）则标记对应档位 `gear_name`，未知为 `""`
+- 图集/实况类型按契约 `quality` 为 `""`
+
+- If the main video URL comes from the original-quality 302 resolution, `data.quality` is set to **`"original"`**
+- Otherwise it carries the selected `gear_name` from `bit_rate` (empty when unknown)
+- For `image`/`live` types, `quality` is `""` per the unified contract
+
+多视频 / Multiple videos:
+
+- 实况图集（live_photo）中的**每个实况视频**都会做同样的 vid → 302 原画转换
+- 批量转换带去重缓存、并发限制与单次上限（30 个），超出上限或失败的条目回退原地址
+
+- Every live-photo video is resolved the same way (vid → 302)
+- Batch conversion applies dedup cache, concurrency limits and a per-request cap (30); items beyond the cap or failing fall back to their original URLs
 
 ---
 

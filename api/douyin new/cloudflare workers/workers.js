@@ -26,6 +26,12 @@ const CORS_HEADERS = {
     "content-type": "application/json; charset=utf-8",
 };
 
+// 原画播放地址模板：传入 vid 拼接后 302 即为原画直链
+const ORIGINAL_PLAY_ENDPOINT = "https://aweme.snssdk.com/aweme/v1/play/";
+// 批量转换 vid 时的并发数与单次上限（防止超出 Workers 子请求配额，超出的回退拼接地址）
+const VID_RESOLVE_CONCURRENCY = 8;
+const VID_RESOLVE_MAX_COUNT = 30;
+
 export default {
     async fetch(request) {
         if (request.method === "OPTIONS") {
@@ -122,7 +128,7 @@ async function parseShareText(text) {
         return output(500, detailResult.reason ? `请求失败（${detailResult.reason}）` : "请求失败", data);
     }
 
-    const payload = buildLegacyFormatData(detailResult.detail.aweme_detail, awemeId);
+    const payload = await buildLegacyFormatData(detailResult.detail.aweme_detail, awemeId);
     const ok =
         (payload.type === "video" && payload.url) ||
         ((payload.type === "image" || payload.type === "live") &&
@@ -205,6 +211,78 @@ async function requestLocation(url) {
     } catch {
         return null;
     }
+}
+
+function buildOriginalPlayUrl(vid, ratio = "default") {
+    if (!vid) {
+        return null;
+    }
+    return `${ORIGINAL_PLAY_ENDPOINT}?video_id=${encodeURIComponent(String(vid))}&ratio=${ratio}&line=0`;
+}
+
+// 原画核心逻辑：传入视频 vid，请求原画播放端点，302 直出原画 CDN 直链
+// 这个破原画接口竟然还有人卖四位数，真是穷疯了
+async function resolveOriginalVideoUrl(vid, ratio = "default") {
+    const fallbackUrl = buildOriginalPlayUrl(vid, ratio);
+    if (!fallbackUrl) {
+        return null;
+    }
+
+    let current = fallbackUrl;
+    try {
+        for (let i = 0; i < 3; i += 1) {
+            const next = await requestLocation(current);
+            if (!next) {
+                break;
+            }
+            current = next;
+        }
+    } catch {
+        return fallbackUrl;
+    }
+
+    return current === fallbackUrl ? fallbackUrl : toHttps(current) || fallbackUrl;
+}
+
+// 从 video 信息中提取 vid（优先 play_addr.uri，兼容 playAddr[0].uri 与 video.uri）
+function extractVidFromVideoInfo(videoInfo) {
+    if (!isObject(videoInfo)) {
+        return null;
+    }
+    if (isObject(videoInfo.play_addr) && videoInfo.play_addr.uri) {
+        return String(videoInfo.play_addr.uri);
+    }
+    if (Array.isArray(videoInfo.playAddr) && isObject(videoInfo.playAddr[0]) && videoInfo.playAddr[0].uri) {
+        return String(videoInfo.playAddr[0].uri);
+    }
+    if (typeof videoInfo.uri === "string" && videoInfo.uri) {
+        return videoInfo.uri;
+    }
+    return null;
+}
+
+// 批量转换 vid：去重 + 缓存 + 并发控制 + 数量上限，超出上限的 vid 不在结果中（由调用方回退拼接地址）
+async function resolveVidBatch(vidList) {
+    const uniqueVids = [...new Set(vidList.filter(Boolean))];
+    const limitedVids = uniqueVids.slice(0, VID_RESOLVE_MAX_COUNT);
+    const cache = new Map();
+    if (!limitedVids.length) {
+        return cache;
+    }
+
+    let index = 0;
+    const workers = Array.from(
+        {length: Math.min(VID_RESOLVE_CONCURRENCY, limitedVids.length)},
+        async () => {
+            while (index < limitedVids.length) {
+                const vid = limitedVids[index];
+                index += 1;
+                cache.set(vid, await resolveOriginalVideoUrl(vid));
+            }
+        }
+    );
+    await Promise.all(workers);
+    return cache;
 }
 
 function extractVideoAddress(url) {
@@ -390,7 +468,7 @@ async function httpGet(url, headersList) {
     return response.text();
 }
 
-function buildLegacyFormatData(detail, fallbackVideoId) {
+async function buildLegacyFormatData(detail, fallbackVideoId) {
     const title = stringValue(detail?.desc);
 
     const authorArr = isObject(detail?.author) ? detail.author : {};
@@ -422,9 +500,15 @@ function buildLegacyFormatData(detail, fallbackVideoId) {
     };
 
     const video = isObject(detail?.video) ? detail.video : null;
-    const duration = video && Number.isFinite(Number(video.duration))
+    // 契约要求秒：抖音原始 duration 为毫秒，>=1000 视为毫秒归一为秒
+    let duration = video && Number.isFinite(Number(video.duration))
         ? Number(video.duration)
         : null;
+    if (duration !== null && duration >= 1000) {
+        duration = Math.round(duration / 1000 * 100) / 100;
+    }
+
+    const createTime = normalizeCreateTime(detail?.create_time ?? detail?.createTime);
 
     const result = {
         type: "unknown",
@@ -433,11 +517,17 @@ function buildLegacyFormatData(detail, fallbackVideoId) {
         author,
         cover: "",
         url: null,
+        quality: "",
         duration,
+        size: 0,
+        size_label: "",
+        create_time: createTime,
+        publish_time: formatPublishTime(createTime),
         video_backup: [],
         images: [],
         live_photo: [],
         music: musicOut,
+        extra: {},
     };
 
     let images = Array.isArray(detail?.images) ? detail.images : [];
@@ -447,6 +537,7 @@ function buildLegacyFormatData(detail, fallbackVideoId) {
 
     if (images.length) {
         result.type = "image";
+        const liveCandidates = [];
         for (const img of images) {
             if (!isObject(img)) {
                 continue;
@@ -463,8 +554,19 @@ function buildLegacyFormatData(detail, fallbackVideoId) {
                 liveVideoUrl = toHttps(liveVideoUrl.replace(/playwm/g, "play")) || "";
             }
             if (imgUrl && liveVideoUrl) {
-                result.live_photo.push({image: imgUrl, video: liveVideoUrl});
+                liveCandidates.push({
+                    image: imgUrl,
+                    fallbackUrl: liveVideoUrl,
+                    vid: extractVidFromVideoInfo(videoInfo),
+                });
             }
+        }
+
+        // 多视频 vid 全部转 302 后的原画直链，拿不到的回退原地址
+        const vidMap = await resolveVidBatch(liveCandidates.map((item) => item.vid));
+        for (const item of liveCandidates) {
+            const resolved = item.vid ? vidMap.get(item.vid) : null;
+            result.live_photo.push({image: item.image, video: resolved || item.fallbackUrl});
         }
 
         if (result.live_photo.length) {
@@ -473,25 +575,41 @@ function buildLegacyFormatData(detail, fallbackVideoId) {
     } else {
         result.type = "video";
         const videoInfo = extractHighestQualityVideo(detail);
+
+        let playUri = extractVidFromVideoInfo(video);
         let main = videoInfo.url;
         if (main) {
             main = toHttps(main.replace(/playwm/g, "play"));
+        }
+
+        // 原画优先：拿 vid 302 后的原画直链作为主地址；失败则回退原来的 main
+        const resolvedOriginal = await resolveOriginalVideoUrl(playUri);
+        if (resolvedOriginal) {
+            if (main && main !== resolvedOriginal) {
+                videoInfo.backup.unshift(main);
+            }
+            main = resolvedOriginal;
+            // 只要主链接是原画 302 出来的，画质统一标 original
+            result.quality = "original";
+        } else if (videoInfo.gearName) {
+            result.quality = videoInfo.gearName;
+        }
+
+        if (main) {
             result.url = main;
+            result.size = await probeVideoSize(main);
+            result.size_label = formatSizeLabel(result.size);
         }
 
         const backups = [];
         for (const candidate of videoInfo.backup) {
             const converted = toHttps(candidate.replace(/playwm/g, "play"));
-            if (converted) {
+            if (converted && converted !== result.url && !backups.includes(converted)) {
                 backups.push(converted);
             }
         }
         result.video_backup = backups;
 
-        let playUri = "";
-        if (video && isObject(video.play_addr) && video.play_addr.uri) {
-            playUri = String(video.play_addr.uri);
-        }
         result.video_id = playUri || fallbackVideoId;
     }
 
@@ -614,6 +732,7 @@ function extractHighestQualityVideo(detail) {
     }
 
     let url = null;
+    let gearName = "";
     const backup = [];
 
     if (bitRateList) {
@@ -653,6 +772,7 @@ function extractHighestQualityVideo(detail) {
 
             if (!url) {
                 url = currentBestUrl;
+                gearName = stringValue(rateItem.gearName || rateItem.gear_name || "");
             }
 
             for (let candidate of candidates) {
@@ -686,7 +806,8 @@ function extractHighestQualityVideo(detail) {
         if (playApi) {
             url = playApi.replace(/playwm/g, "play");
         } else if (uri) {
-            url = `https://aweme.snssdk.com/aweme/v1/play/?video_id=${uri}&ratio=720p&line=0`;
+            // 原画兜底地址：buildLegacyFormatData 会用 vid 走 resolveOriginalVideoUrl 做 302 解析，失败回退此地址
+            url = buildOriginalPlayUrl(uri);
         }
 
         const urlList = isObject(video.play_addr) && Array.isArray(video.play_addr.url_list)
@@ -705,7 +826,92 @@ function extractHighestQualityVideo(detail) {
         }
     }
 
-    return {url, backup};
+    return {url, backup, gearName};
+}
+
+// 统一响应契约辅助：1024 进制 B/KB/MB/GB/TB，最多两位小数且不保留尾部 0
+function formatSizeLabel(bytes) {
+    const size = Number(bytes);
+    if (!Number.isFinite(size) || size <= 0) {
+        return "";
+    }
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let value = size;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+        value /= 1024;
+        unit += 1;
+    }
+    if (unit === 0) {
+        return `${Math.round(value)}B`;
+    }
+    const label = value.toFixed(2).replace(/\.?0+$/, "");
+    return `${label}${units[unit]}`;
+}
+
+// 发布时间归一化：秒级直用，毫秒级（>=1e12）除一次 1000，非法/超范围归 0
+function normalizeCreateTime(value) {
+    let ts = Number(value);
+    if (!Number.isFinite(ts) || ts <= 0) {
+        return 0;
+    }
+    if (ts >= 1000000000000) {
+        ts = Math.floor(ts / 1000);
+    } else {
+        ts = Math.floor(ts);
+    }
+    if (ts < 1000000000 || ts > 4102444800) {
+        return 0;
+    }
+    return ts;
+}
+
+// 固定东八区格式化为 YYYY-MM-DD HH:mm:ss，未知返回空串
+function formatPublishTime(createTime) {
+    if (!createTime) {
+        return "";
+    }
+    try {
+        const formatter = new Intl.DateTimeFormat("zh-CN", {
+            timeZone: "Asia/Shanghai",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false,
+        });
+        const parts = formatter.formatToParts(new Date(createTime * 1000));
+        const get = (type) => (parts.find((p) => p.type === type) || {}).value || "";
+        return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")}`;
+    } catch {
+        return "";
+    }
+}
+
+// 有界探测主视频真实字节大小：单次 HEAD、不下载正文，拿不到一律 0（契约允许未知）
+async function probeVideoSize(url) {
+    if (!url) {
+        return 0;
+    }
+    try {
+        const response = await fetch(url, {
+            method: "HEAD",
+            headers: {"user-agent": DEFAULT_UA},
+        });
+        if (!response.ok) {
+            return 0;
+        }
+        const contentType = (response.headers.get("content-type") || "").toLowerCase();
+        if (!contentType.includes("video") && !contentType.includes("octet-stream")) {
+            return 0;
+        }
+        const length = Number(response.headers.get("content-length"));
+        return Number.isFinite(length) && length > 0 ? Math.floor(length) : 0;
+    } catch {
+        return 0;
+    }
 }
 
 function pickCover(detail) {
