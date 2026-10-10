@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>短视频解析 · 多清晰度版</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: linear-gradient(160deg, #1a1a2e 0%, #16213e 100%);
+    min-height: 100vh; color: #e8e8f0; padding: 24px 16px;
+  }
+  .container { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 22px; text-align: center; margin-bottom: 6px; letter-spacing: 1px; }
+  .subtitle { text-align: center; color: #9aa0b0; font-size: 13px; margin-bottom: 24px; }
+  .card {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 14px; padding: 18px; margin-bottom: 16px;
+  }
+  .input-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  input[type=text] {
+    flex: 1; min-width: 220px; padding: 12px 14px; border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08);
+    color: #fff; font-size: 14px; outline: none;
+  }
+  input[type=text]:focus { border-color: #4f6ef7; }
+  button {
+    padding: 12px 22px; border-radius: 10px; border: none; cursor: pointer;
+    background: #4f6ef7; color: #fff; font-size: 14px; font-weight: 600;
+    transition: opacity .2s;
+  }
+  button:hover { opacity: .88; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .hint { font-size: 12px; color: #9aa0b0; margin-top: 10px; }
+  .meta { margin-bottom: 12px; }
+  .meta .title { font-size: 15px; font-weight: 600; }
+  .meta .author { font-size: 13px; color: #9aa0b0; margin-top: 4px; }
+  .quality-row {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;
+  }
+  .quality-row label { font-size: 13px; color: #9aa0b0; }
+  select {
+    padding: 9px 12px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.1); color: #fff; font-size: 14px; outline: none;
+  }
+  select option { color: #222; background: #fff; }
+  video {
+    width: 100%; border-radius: 10px; background: #000; max-height: 460px;
+  }
+  .actions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+  .actions a {
+    padding: 11px 20px; border-radius: 10px; text-decoration: none; font-size: 14px;
+    font-weight: 600; display: inline-block;
+  }
+  .btn-download { background: #27ae60; color: #fff; }
+  .btn-copy { background: rgba(255,255,255,0.12); color: #fff; }
+  .status { font-size: 13px; color: #9aa0b0; min-height: 18px; }
+  .status.err { color: #ff6b6b; }
+  .hidden { display: none; }
+  .msg { padding: 12px; border-radius: 10px; background: rgba(255,107,107,0.12); color: #ff6b6b; font-size: 14px; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>短视频解析</h1>
+  <div class="subtitle">支持多清晰度选择 · 个人学习自用</div>
+
+  <div class="card">
+    <div class="input-row">
+      <input type="text" id="urlInput" placeholder="粘贴抖音 / 快手 / 小红书等分享链接…">
+      <button id="parseBtn">解析</button>
+    </div>
+    <div class="hint">提示：抖音解析需要后端配置有效 Cookie，解析失败请检查服务端。</div>
+  </div>
+
+  <div id="msgBox" class="msg hidden"></div>
+  <div id="status" class="status"></div>
+
+  <div id="result" class="hidden">
+    <div class="card">
+      <div class="meta">
+        <div class="title" id="videoTitle"></div>
+        <div class="author" id="videoAuthor"></div>
+      </div>
+
+      <div class="quality-row" id="qualityRow">
+        <label for="qualitySelect">清晰度：</label>
+        <select id="qualitySelect"></select>
+        <span id="qualityInfo" style="font-size:12px;color:#9aa0b0;"></span>
+      </div>
+
+      <video id="player" controls playsinline></video>
+
+      <div class="actions">
+        <a class="btn-download" id="downloadBtn" href="#" download>⬇ 下载当前清晰度</a>
+        <a class="btn-copy" id="copyBtn" href="javascript:void(0)">复制链接</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---- 配置：解析接口地址 ----
+  // 本地解析接口（你已改好多清晰度的 DouyinParser.php 所在服务）
+  var API_URL = "../api/douyin/douyin.php?url=";
+  // 若你的接口部署在远程，改成:  var API_URL = "https://你的域名/api/douyin/douyin.php?url=";
+
+  var el = {
+    input: document.getElementById("urlInput"),
+    parseBtn: document.getElementById("parseBtn"),
+    msgBox: document.getElementById("msgBox"),
+    status: document.getElementById("status"),
+    result: document.getElementById("result"),
+    title: document.getElementById("videoTitle"),
+    author: document.getElementById("videoAuthor"),
+    qualityRow: document.getElementById("qualityRow"),
+    qualitySelect: document.getElementById("qualitySelect"),
+    qualityInfo: document.getElementById("qualityInfo"),
+    player: document.getElementById("player"),
+    downloadBtn: document.getElementById("downloadBtn"),
+    copyBtn: document.getElementById("copyBtn")
+  };
+
+  var currentOptions = [];   // 多档清晰度列表
+  var currentCover = "";     // 封面地址
+
+  function setMsg(text) {
+    if (text) { el.msgBox.textContent = text; el.msgBox.classList.remove("hidden"); }
+    else { el.msgBox.textContent = ""; el.msgBox.classList.add("hidden"); }
+  }
+  function setStatus(text, isErr) {
+    el.status.textContent = text || "";
+    el.status.className = "status" + (isErr ? " err" : "");
+  }
+
+  function urlencode(u) { return encodeURIComponent(u); }
+
+  function buildApiUrl(rawUrl) {
+    // 拼接接口地址
+    return API_URL + urlencode(rawUrl);
+  }
+
+  function fillQualityOptions(options) {
+    el.qualitySelect.innerHTML = "";
+    if (!options || !options.length) {
+      // 没有多档数据：渲染"默认"单档（兼容旧接口）
+      var o = document.createElement("option");
+      o.value = "";
+      o.textContent = "默认";
+      el.qualitySelect.appendChild(o);
+      el.qualityInfo.textContent = "";
+      return;
+    }
+    options.forEach(function (opt, idx) {
+      var o = document.createElement("option");
+      o.value = String(idx);
+      o.textContent = opt.name || ("档位 " + (idx + 1));
+      if (idx === 0) o.selected = true;
+      el.qualitySelect.appendChild(o);
+    });
+    showQualityInfo(options[0], 0);
+  }
+
+  function showQualityInfo(opt, idx) {
+    if (!opt) { el.qualityInfo.textContent = ""; return; }
+    var parts = [];
+    if (opt.bitrate) parts.push((opt.bitrate / 1000).toFixed(0) + " kbps");
+    if (opt.size) parts.push((opt.size / 1024 / 1024).toFixed(1) + " MB");
+    el.qualityInfo.textContent = parts.join(" · ");
+  }
+
+  function onQualityChange() {
+    var idx = parseInt(el.qualitySelect.value, 10);
+    var opt = currentOptions[idx];
+    if (!opt) {
+      // 无多档时用默认 url
+      if (el.player.dataset.defaultUrl) el.player.src = el.player.dataset.defaultUrl;
+      return;
+    }
+    el.player.src = opt.url;
+    el.downloadBtn.href = opt.url;
+    el.downloadBtn.setAttribute("download", "video_" + (opt.quality || "") + ".mp4");
+    showQualityInfo(opt, idx);
+  }
+
+  function renderData(data) {
+    var d = data.data || {};
+    setMsg("");
+
+    el.title.textContent = d.title || d.desc || "(无标题)";
+    el.author.textContent = d.author && d.author.name ? ("作者：" + d.author.name) : "";
+
+    // 清晰度选项：优先新字段 video_options，旧接口用 url 兜底
+    currentOptions = Array.isArray(d.video_options) ? d.video_options : [];
+    if (d.cover) currentCover = d.cover;
+
+    fillQualityOptions(currentOptions);
+
+    var defaultUrl = (currentOptions.length ? currentOptions[0].url : null) || d.url || "";
+    el.player.dataset.defaultUrl = defaultUrl || "";
+    el.player.src = defaultUrl;
+    el.downloadBtn.href = defaultUrl;
+    el.downloadBtn.setAttribute("download", "video.mp4");
+
+    if (!defaultUrl) {
+      setMsg("解析成功但未返回可播放的视频地址。");
+    }
+
+    el.result.classList.remove("hidden");
+  }
+
+  function parse() {
+    var raw = el.input.value.trim();
+    if (!raw) { setMsg("请先粘贴一个链接。"); return; }
+    setMsg("");
+    setStatus("解析中…");
+    el.parseBtn.disabled = true;
+
+    fetch(buildApiUrl(raw), { method: "GET" })
+      .then(function (r) { return r.json(); })
+      .then(function (json) {
+        setStatus("解析完成");
+        if (json.code === 200) {
+          renderData(json);
+        } else {
+          setMsg("接口返回：" + (json.msg || "解析失败") + (json.data ? "（" + JSON.stringify(json.data) + "）" : ""));
+          el.result.classList.add("hidden");
+        }
+      })
+      .catch(function (err) {
+        setStatus("请求失败", true);
+        setMsg("请求解析接口失败：" + err.message + "。请确认后端 PHP 已启动，且接口地址配置正确。");
+        el.result.classList.add("hidden");
+      })
+      .finally(function () { el.parseBtn.disabled = false; });
+  }
+
+  // 复制当前链接
+  el.copyBtn.addEventListener("click", function () {
+    var url = el.player.src || el.downloadBtn.getAttribute("href");
+    if (!url) return;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(function () { setStatus("已复制链接"); });
+    } else {
+      setStatus("请手动复制： " + url);
+    }
+  });
+
+  el.parseBtn.addEventListener("click", parse);
+  el.input.addEventListener("keydown", function (e) { if (e.key === "Enter") parse(); });
+  el.qualitySelect.addEventListener("change", onQualityChange);
+})();
+</script>
+</body>
+</html>
