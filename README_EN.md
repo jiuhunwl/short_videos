@@ -481,7 +481,7 @@ Thank you to the following generous supporters for your sponsorship! Your suppor
     <tr style="background-color: #f8f9fa;">
       <td style="border: none; border-bottom: 1px solid #e9ecef; padding: 14px; text-align: center; font-weight: 500;">24</td>
       <td style="border: none; border-bottom: 1px solid #e9ecef; padding: 14px; text-align: center;">Y</td>
-      <td style="border: none; border-bottom: 1px solid #e9ecef; padding: 14px; text-align: center; color: #28a745; font-weight: bold; font-size: 1.1em;">¥654.64</td>
+      <td style="border: none; border-bottom: 1px solid #e9ecef; padding: 14px; text-align: center; color: #28a745; font-weight: bold; font-size: 1.1em;">¥742.64</td>
       <td style="border: none; border-bottom: 1px solid #e9ecef; padding: 14px; text-align: center; color: #495057;">Support!</td>
     </tr>
     <tr style="background-color: #ffffff;">
