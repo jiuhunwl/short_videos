@@ -689,6 +689,9 @@ class DouyinParser
             }
             $result['video_backup'] = $backups;
             $result['video_id'] = $playUri ?: ($detail['video']['uri'] ?? '');
+
+            // 【合并】多档清晰度选项（原画/高清/标清等）
+            $result['video_options'] = $this->extractVideoOptions($detail);
         }
 
         return $this->output(200, '解析成功', $result);
@@ -799,5 +802,75 @@ class DouyinParser
         }
 
         return ['url' => $url, 'backup' => $backup];
+    }
+
+    /**
+     * 【合并新增】提取多档清晰度视频选项（原画/高清/标清/流畅等）
+     *
+     * 说明：抖音 bitRateList 自带各档清晰度信息（qualityType/gearName/bitRate/size），
+     * 这里把每一档都提取出来并带可读名称，供前端做"清晰度选择"。
+     * 数据结构随抖音改版可能变化，字段取不到时按码率兜底生成名称。
+     */
+    private function extractVideoOptions($detail)
+    {
+        $options = [];
+
+        if (!isset($detail['video']['bitRateList']) || !is_array($detail['video']['bitRateList'])) {
+            return $options; // 无多档数据，返回空数组
+        }
+
+        foreach ($detail['video']['bitRateList'] as $rateItem) {
+            // 当前档位的清晰度信息
+            $quality  = $rateItem['qualityType'] ?? null;   // 数值档位
+            $gearName = $rateItem['gearName'] ?? '';         // 档位名称（如"原画""高清"）
+            $bitRate  = $rateItem['bitRate'] ?? 0;           // 码率
+            $size     = $rateItem['size'] ?? null;           // 文件大小（字节）
+
+            // 提取当前档位的可用播放地址
+            $candidates = [];
+            if (isset($rateItem['playAddr']) && is_array($rateItem['playAddr'])) {
+                foreach ($rateItem['playAddr'] as $pa) {
+                    if (isset($pa['src'])) $candidates[] = $pa['src'];
+                }
+            } elseif (isset($rateItem['play_addr']['url_list'])) {
+                $candidates = $rateItem['play_addr']['url_list'];
+            }
+            if (empty($candidates)) continue;
+
+            // 优先 v3-web，其次 v26-web（替换域名），最后兜底
+            $bestUrl = null;
+            $v26Link = null;
+            foreach ($candidates as $candidate) {
+                if (strpos($candidate, 'v3-web') !== false) { $bestUrl = $candidate; break; }
+                if (strpos($candidate, 'v26-web') !== false) $v26Link = $candidate;
+            }
+            if (!$bestUrl && $v26Link) {
+                $bestUrl = preg_replace('/:\/\/([^\/]+)/', '://v26-luna.douyinvod.com', $v26Link);
+            }
+            if (!$bestUrl) $bestUrl = $candidates[0];
+
+            // 清晰度名称兜底（没有 gearName 时按码率给可读标签）
+            if (!$gearName) {
+                if ($bitRate >= 3000000)      $gearName = '原画/超清';
+                elseif ($bitRate >= 1500000)  $gearName = '高清';
+                elseif ($bitRate >= 800000)   $gearName = '标清';
+                else                          $gearName = '流畅';
+            }
+
+            $options[] = [
+                'quality' => $quality,
+                'name'    => $gearName,
+                'bitrate' => $bitRate,
+                'size'    => $size,
+                'url'     => $bestUrl,
+            ];
+        }
+
+        // 按码率从高到低排序（原画在前）
+        usort($options, function ($a, $b) {
+            return ($b['bitrate'] ?? 0) - ($a['bitrate'] ?? 0);
+        });
+
+        return $options;
     }
 }
