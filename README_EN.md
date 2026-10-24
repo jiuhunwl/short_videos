@@ -394,7 +394,7 @@ Thanks to all of our generous sponsors for keeping this project going!
 | 33 | little | ¥100.00 | — |
 | 34 | 走过十里坡 | ¥199.00 | — |
 | 35 | ɴᴏᴡᴏʀɴᴇᴠᴇʀ | ¥200.00 | — |
-| 36 | 路飞 | ¥88.00 | — |
+| 36 | 路飞 | ¥425.76 | — |
 | 37 | *） | ¥88.88 | — |
 
 </details>
