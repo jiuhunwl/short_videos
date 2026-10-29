@@ -396,6 +396,8 @@ Thanks to all of our generous sponsors for keeping this project going!
 | 35 | ɴᴏᴡᴏʀɴᴇᴠᴇʀ | ¥200.00 | — |
 | 36 | 路飞 | ¥425.76 | — |
 | 37 | *） | ¥88.88 | — |
+| 38 | 旧时光〃 | ¥666.00 | — |
+| 39 | 智慧人生 | ¥88.00 | — |
 
 </details>
 
