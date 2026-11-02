@@ -401,6 +401,7 @@ Thanks to all of our generous sponsors for keeping this project going!
 | 40 | 雨寂™ | ¥18.80 | — |
 | 41 | *大 | ¥50.00 | — |
 | 42 | F*x | ¥100.00 | — |
+| 43 | 行*. | ¥66.66 | — |
 
 </details>
 
