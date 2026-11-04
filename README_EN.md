@@ -355,7 +355,7 @@ If you find this project helpful, please consider supporting our work:
 Thanks to all of our generous sponsors for keeping this project going!
 
 <details>
-<summary><strong>Expand full sponsor list (47 sponsors)</strong></summary>
+<summary><strong>Expand full sponsor list (48 sponsors)</strong></summary>
 
 | # | Sponsor | Amount | Message |
 |:---:|:---:|:---:|:---:|
@@ -384,7 +384,7 @@ Thanks to all of our generous sponsors for keeping this project going!
 | 23 | 鑫 | ¥5.00 | — |
 | 24 | Y | ¥742.64 | — |
 | 25 | 曲奇 | ¥8.88 | — |
-| 26 | 大圣 | ¥8.88 | — |
+| 26 | 大圣 | ¥37.72 | — |
 | 27 | yyzz | ¥1451.00 | — |
 | 28 | 你好 | ¥8.00 | — |
 | 29 | *1 | ¥18.80 | — |
@@ -406,6 +406,7 @@ Thanks to all of our generous sponsors for keeping this project going!
 | 45 | **然 | ¥50.00 | — |
 | 46 | 温柔 | ¥50.00 | — |
 | 47 | *溜 | ¥6.66 | — |
+| 48 | 老同学 | ¥2554.00 | — |
 
 </details>
 

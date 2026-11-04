@@ -371,7 +371,7 @@ curl "https://你的服务器地址/api/sv.php?url=https://v.douyin.com/xxxx/"
 感谢以下支持者的慷慨赞助，您的支持是我们持续改进的动力！
 
 <details>
-<summary><strong>展开查看完整赞助者名单（47 位）</strong></summary>
+<summary><strong>展开查看完整赞助者名单（48 位）</strong></summary>
 
 <div align="center">
 
@@ -402,7 +402,7 @@ curl "https://你的服务器地址/api/sv.php?url=https://v.douyin.com/xxxx/"
 | 23 | 鑫 | ¥5.00 | 支持！ |
 | 24 | Y | ¥742.64 | 支持！ |
 | 25 | 曲奇 | ¥8.88 | 支持！ |
-| 26 | 大圣 | ¥8.88 | 支持！ |
+| 26 | 大圣 | ¥37.72 | 支持！ |
 | 27 | yyzz | ¥1451.00 | 支持！ |
 | 28 | 你好 | ¥8.00 | 支持！ |
 | 29 | *1 | ¥18.80 | 支持！ |
@@ -424,6 +424,7 @@ curl "https://你的服务器地址/api/sv.php?url=https://v.douyin.com/xxxx/"
 | 45 | **然 | ¥50.00 | 支持！ |
 | 46 | 温柔 | ¥50.00 | 支持！ |
 | 47 | *溜 | ¥6.66 | 支持！ |
+| 48 | 老同学 | ¥2554.00 | 支持！ |
 
 </div>
 
