@@ -371,7 +371,7 @@ curl "https://你的服务器地址/api/sv.php?url=https://v.douyin.com/xxxx/"
 感谢以下支持者的慷慨赞助，您的支持是我们持续改进的动力！
 
 <details>
-<summary><strong>展开查看完整赞助者名单（45 位）</strong></summary>
+<summary><strong>展开查看完整赞助者名单（46 位）</strong></summary>
 
 <div align="center">
 
@@ -422,6 +422,7 @@ curl "https://你的服务器地址/api/sv.php?url=https://v.douyin.com/xxxx/"
 | 43 | 行*. | ¥66.66 | 支持！ |
 | 44 | just | ¥200.00 | 支持！ |
 | 45 | **然 | ¥50.00 | 支持！ |
+| 46 | 温柔 | ¥50.00 | 支持！ |
 
 </div>
 

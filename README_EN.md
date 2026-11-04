@@ -355,7 +355,7 @@ If you find this project helpful, please consider supporting our work:
 Thanks to all of our generous sponsors for keeping this project going!
 
 <details>
-<summary><strong>Expand full sponsor list (45 sponsors)</strong></summary>
+<summary><strong>Expand full sponsor list (46 sponsors)</strong></summary>
 
 | # | Sponsor | Amount | Message |
 |:---:|:---:|:---:|:---:|
@@ -404,6 +404,7 @@ Thanks to all of our generous sponsors for keeping this project going!
 | 43 | 行*. | ¥66.66 | — |
 | 44 | just | ¥200.00 | — |
 | 45 | **然 | ¥50.00 | — |
+| 46 | 温柔 | ¥50.00 | — |
 
 </details>
 
