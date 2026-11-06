@@ -382,7 +382,7 @@ Thanks to all of our generous sponsors for keeping this project going!
 | 21 | 人民群众 | ¥100.00 | — |
 | 22 | 小渡api | ¥10.00 | — |
 | 23 | 鑫 | ¥5.00 | — |
-| 24 | Y | ¥953.54 | — |
+| 24 | Y | ¥1141.54 | — |
 | 25 | 曲奇 | ¥8.88 | — |
 | 26 | 大圣 | ¥37.72 | — |
 | 27 | yyzz | ¥1451.00 | — |
