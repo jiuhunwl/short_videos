@@ -385,7 +385,7 @@ Thanks to all of our generous sponsors for keeping this project going!
 | 24 | Y | ¥1141.54 | — |
 | 25 | 曲奇 | ¥8.88 | — |
 | 26 | 大圣 | ¥37.72 | — |
-| 27 | yyzz | ¥1451.00 | — |
+| 27 | yyzz | ¥1827.00 | — |
 | 28 | 你好 | ¥8.00 | — |
 | 29 | *1 | ¥18.80 | — |
 | 30 | *豐 | ¥10.00 | — |
