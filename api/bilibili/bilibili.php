@@ -49,13 +49,11 @@ if (empty($bvid)) {
 }
 
 //获取解析需要的cid值和图片以及标题
-$json1 = bilibili(
-    'https://api.bilibili.com/x/web-interface/view?bvid=' . $bvid
-    , $headers
-    , $useragent
-    , $cookie
-);
+$json1 = bilibili_wbi_view($bvid, $headers, $useragent, $cookie);
 $array = json_decode($json1, true);
+if (!is_array($array)) {
+    $array = [];
+}
 if ($array['code'] == '0') {
     $title = $array['data']['title'];
     $cover = $array['data']['pic'];
@@ -270,6 +268,90 @@ function cleanUrlParameters($url)
 
     // Step 5: 拼接最终URL
     return $scheme . $host . $port . $path . $fragment;
+}
+
+
+function bilibili_http_json($url, $useragent)
+{
+    $reqHeaders = [
+        'Content-type: application/json;charset=UTF-8',
+        'Referer: https://www.bilibili.com/',
+        'Origin: https://www.bilibili.com',
+    ];
+    $raw = bilibili($url, $reqHeaders, $useragent, '');
+    $json = json_decode($raw, true);
+    return is_array($json) ? $json : null;
+}
+
+function bilibili_wbi_keys($useragent)
+{
+    $file = sys_get_temp_dir() . '/bili_wbi_keys.json';
+    if (is_file($file) && time() - filemtime($file) < 21600) {
+        $cache = json_decode(file_get_contents($file), true);
+        if (!empty($cache['img_key']) && !empty($cache['sub_key'])) {
+            return $cache;
+        }
+    }
+    $nav = bilibili_http_json('https://api.bilibili.com/x/web-interface/nav', $useragent);
+    if (empty($nav['data']['wbi_img']['img_url']) || empty($nav['data']['wbi_img']['sub_url'])) {
+        return null;
+    }
+    $cache = [
+        'img_key' => explode('.', basename($nav['data']['wbi_img']['img_url']))[0],
+        'sub_key' => explode('.', basename($nav['data']['wbi_img']['sub_url']))[0],
+    ];
+    @file_put_contents($file, json_encode($cache));
+    return $cache;
+}
+
+function bilibili_mixin_key($rawKey)
+{
+    $tab = [46,47,18,2,53,8,23,32,15,50,10,31,58,3,45,35,27,43,5,49,33,9,42,19,29,28,14,39,12,38,41,13,37,48,7,16,24,55,40,61,26,17,0,1,60,51,30,4,22,25,54,21,56,59,6,63,57,62,11,36,20,34,44,52];
+    $mixin = '';
+    foreach ($tab as $i) {
+        $mixin .= isset($rawKey[$i]) ? $rawKey[$i] : '';
+    }
+    return substr($mixin, 0, 32);
+}
+
+function bilibili_buvid($useragent)
+{
+    $file = sys_get_temp_dir() . '/bili_buvid.json';
+    if (is_file($file) && time() - filemtime($file) < 43200) {
+        $cache = json_decode(file_get_contents($file), true);
+        if (!empty($cache['buvid3'])) {
+            return $cache;
+        }
+    }
+    $spi = bilibili_http_json('https://api.bilibili.com/x/frontend/finger/spi', $useragent);
+    if (empty($spi['data']['b_3'])) {
+        return null;
+    }
+    $cache = ['buvid3' => $spi['data']['b_3'], 'buvid4' => $spi['data']['b_4'] ?? ''];
+    @file_put_contents($file, json_encode($cache));
+    return $cache;
+}
+
+function bilibili_wbi_view($bvid, $headers, $useragent, $cookie)
+{
+    $keys = bilibili_wbi_keys($useragent);
+    $buvid = bilibili_buvid($useragent);
+    if (!$keys || !$buvid) {
+        return bilibili('https://api.bilibili.com/x/web-interface/view?bvid=' . $bvid, $headers, $useragent, $cookie);
+    }
+    $params = ['bvid' => $bvid, 'wts' => time()];
+    ksort($params);
+    $query = http_build_query($params);
+    $params['w_rid'] = md5($query . bilibili_mixin_key($keys['img_key'] . $keys['sub_key']));
+    $url = 'https://api.bilibili.com/x/web-interface/wbi/view?' . http_build_query($params);
+    $cookieLine = trim($cookie);
+    $cookieLine = $cookieLine === '' ? '' : rtrim($cookieLine, '; ') . '; ';
+    $cookieLine .= 'buvid3=' . $buvid['buvid3'] . '; buvid4=' . $buvid['buvid4'];
+    $reqHeaders = array_merge($headers, [
+        'Referer: https://www.bilibili.com/',
+        'Origin: https://www.bilibili.com',
+    ]);
+    return bilibili($url, $reqHeaders, $useragent, $cookieLine);
 }
 
 ?>
