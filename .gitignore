@@ -1,3 +1,6 @@
 .idea/
 .workbuddy/
 *.iml
+
+# 本地赞助明细（不进 Git）
+赞助名单-明细.md
