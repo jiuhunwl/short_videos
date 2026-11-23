@@ -25,7 +25,7 @@
   const go=make('button','primary','去解析作品');go.type='button';go.onclick=()=>{show('parse');$('share').focus();};empty.append(go);pages.materials.append(empty,$('result'));
   for(const id of ['app-folder-settings','app-history-settings','app-startup-settings','app-service-settings']){const slot=make('div');slot.id=id;pages.settings.append(slot);}
   const account=make('section','settings-group app-account');account.append(make('h2','','账号'),$('account'));account.hidden=server==='device';pages.settings.append(account);
-  const about=make('div','app-about');about.append(make('strong','','拾影 1.1.2'),make('p','','请尊重原创，仅保存已获授权的内容。'));pages.settings.append(about);
+  const about=make('div','app-about');about.append(make('strong','','拾影 1.1.3'),make('p','','请尊重原创，仅保存已获授权的内容。'));pages.settings.append(about);
   oldHeader.hidden=true;document.querySelector('aside').hidden=true;$('platforms').hidden=true;main.querySelector('.bottom-note').hidden=true;
   main.insertBefore($('status'),pages.parse);
   const dock=make('nav','app-dock');dock.setAttribute('aria-label','主导航');const buttons={};let current='parse';

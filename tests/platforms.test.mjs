@@ -38,7 +38,7 @@ console.log('PASS: cloud browser envelope, eight-image gallery, quota/login fall
 // A valid video on Douyin's newer CDN must survive download registration.
 const {registerMedia,mediaAllowed}=await import('../cloudflare/media.mjs');
 const db={prepare:()=>({bind:(...values)=>values}),batch:async()=>{}};
-for(const host of ['v5-dy-ov-experiment.zjcdn.com','v3-dy-o.zjcdn.com']){
+for(const host of ['v5-dy-ov-experiment.zjcdn.com','v3-dy-o.zjcdn.com','4b19a02d-9.sjxydc.com']){
   const registered=await registerMedia(db,1,{type:'video',title:'她不一样',url:'https://'+host+'/sample.mp4',cover:'https://p3.douyinpic.com/cover.jpg'});
   assert.deepEqual(registered.downloads.map(a=>a.kind),['video','cover']);
   assert.equal(mediaAllowed('https://'+host+'.evil.test/sample.mp4'),false);
